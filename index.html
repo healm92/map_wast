@@ -2,9 +2,11 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <title>ระบบแผนที่ขยะอันตราย - อบต.เมืองเก่า</title>
+    <title>ระบบแผนที่ขยะอันตรายในเขต อบต.เมืองเก่า</title>
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- SheetJS สำหรับ Export/Import Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; }
         
@@ -12,24 +14,35 @@
             display: flex; justify-content: center; align-items: center; height: 100vh; background: #e9ecef;
         }
         .login-box {
-            background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px;
+            background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px; text-align: center;
         }
-        .login-box h2 { margin-top: 0; text-align: center; color: #333; }
+        .login-box img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-bottom: 15px; border: 2px solid #ddd; }
+        .login-box h2 { font-size: 18px; margin-top: 0; color: #333; margin-bottom: 20px; }
         
         #app-container {
             display: none; height: 100vh; display: flex;
         }
-        #sidebar { width: 400px; padding: 20px; box-sizing: border-box; background: #f8f9fa; overflow-y: auto; border-right: 1px solid #ddd; }
+        #sidebar { width: 420px; padding: 20px; box-sizing: border-box; background: #f8f9fa; overflow-y: auto; border-right: 1px solid #ddd; }
         #map { flex-grow: 1; height: 100%; }
         
-        .form-group { margin-bottom: 12px; }
+        .form-group { margin-bottom: 12px; text-align: left; }
         label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
         input, select, textarea { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
         textarea { resize: vertical; height: 60px; }
-        button { background: #007bff; color: white; border: none; padding: 10px 15px; width: 100%; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; width: 100%; border-radius: 4px; cursor: pointer; font-size: 15px; margin-top: 8px; }
         button:hover { background: #0056b3; }
-        .btn-logout { background: #dc3545; margin-top: 20px; }
-        .btn-logout:hover { background: #c82333; }
+        
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-warning:hover { background: #e0a800; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        
+        .tools-section { background: #e2e6ea; padding: 10px; border-radius: 6px; margin-top: 20px; }
+        .search-box { background: #e9ecef; padding: 10px; border-radius: 6px; margin-bottom: 15px; }
+        .location-item { background: white; padding: 8px; margin-top: 5px; border-radius: 4px; border: 1px solid #ddd; cursor: pointer; font-size: 13px; }
+        .location-item:hover { background: #f1f3f5; }
     </style>
 </head>
 <body>
@@ -37,8 +50,9 @@
     <!-- หน้าจอเข้าสู่ระบบ -->
     <div id="login-container">
         <div class="login-box">
-            <h2>เข้าสู่ระบบ (ระบบที่ 3)</h2>
-            <form id="loginForm">
+            <img src="https://pdoojfiwedjbrjvjtqth.supabase.co/storage/v1/object/public/logo/logo.jpg" alt="Logo อบต.เมืองเก่า" onerror="this.src='https://via.placeholder.com/80'">
+            <h2>เข้าสู่ระบบแผนที่ขยะอันตรายในเขต อบต.เมืองเก่า</h2>
+            <form id="loginForm" style="text-align: left;">
                 <div class="form-group">
                     <label>อีเมล (Email):</label>
                     <input type="email" id="login_email" required placeholder="admin@mueangkao.go.th">
@@ -53,10 +67,18 @@
     </div>
 
     <!-- หน้าจอแอปพลิเคชันหลัก -->
-    <div id="app-container">
+    <div id="app-container" style="display: none;">
         <div id="sidebar">
-            <h2>บันทึกข้อมูลสถานประกอบการ</h2>
+            <!-- ส่วนค้นหาชื่อกิจการ -->
+            <div class="search-box">
+                <label style="font-size: 13px;">🔍 ค้นหาชื่อกิจการ:</label>
+                <input type="text" id="searchInput" placeholder="พิมพ์ชื่อกิจการเพื่อค้นหา..." oninput="filterLocations()">
+                <div id="searchResults" style="max-height: 150px; overflow-y: auto; margin-top: 5px;"></div>
+            </div>
+
+            <h2 id="form-title">บันทึกข้อมูลสถานประกอบการ</h2>
             <form id="locationForm">
+                <input type="hidden" id="edit_id">
                 <div class="form-group">
                     <label>1. ชื่อกิจการ:</label>
                     <input type="text" id="name" required placeholder="ระบุชื่อกิจการ">
@@ -92,9 +114,22 @@
                         <option value="อื่นๆ">อื่นๆ</option>
                     </select>
                 </div>
-                <button type="submit">บันทึกข้อมูลลง Schema hazardous_waste</button>
+                <button type="submit" id="btnSave" class="btn-success">บันทึกข้อมูล</button>
+                <button type="button" id="btnCancelEdit" class="btn-danger" style="display:none;" onclick="resetForm()">ยกเลิกการแก้ไข</button>
             </form>
-            <button class="btn-logout" id="btnLogout">ออกจากระบบ</button>
+
+            <!-- เครื่องมือจัดการข้อมูลเพิ่มเติม -->
+            <div class="tools-section">
+                <h3>จัดการข้อมูลระบบ</h3>
+                <button class="btn-warning" onclick="exportToExcel()">📥 ส่งออกข้อมูลเป็น Excel</button>
+                <button class="btn-success" onclick="backupData()">💾 สำรองข้อมูล (Backup JSON)</button>
+                <div style="margin-top: 10px;">
+                    <label style="font-size: 13px;">📤 นำเข้าข้อมูลจาก Excel:</label>
+                    <input type="file" id="importFile" accept=".xlsx, .xls, .csv" onchange="importFromExcel(event)" style="font-size: 12px; background: white;">
+                </div>
+            </div>
+
+            <button class="btn-danger" id="btnLogout" style="margin-top: 25px;">ออกจากระบบ</button>
         </div>
         <div id="map"></div>
     </div>
@@ -104,7 +139,6 @@
     <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-        // ตั้งค่าการเชื่อมต่อโดยใช้ตัวแปร db เพื่อไม่ให้ชนกับคีย์เวิร์ด supabase
         const SUPABASE_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         
@@ -113,6 +147,8 @@
         });
 
         let map, tempMarker = null;
+        let allLocations = [];
+        let markersLayer = L.layerGroup(); // เลเยอร์เก็บหมุดบนแผนที่เพื่อจัดการง่ายขึ้น
 
         window.addEventListener('DOMContentLoaded', () => {
             if (localStorage.getItem('isLoggedIn_hw') === 'true') {
@@ -120,33 +156,27 @@
             }
         });
 
-        // ล็อกอินเช็คอีเมลและรหัสผ่าน
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const emailInput = document.getElementById('login_email').value;
-            const passInput = document.getElementById('login_pass').value;
+            const emailInput = document.getElementById('login_email').value.trim();
+            const passInput = document.getElementById('login_pass').value.trim();
 
             const { data, error } = await db
                 .from('app_users')
                 .select('*')
                 .eq('email', emailInput)
-                .eq('password', passInput)
-                .single();
+                .eq('password', passInput);
 
-            if (error || !data) {
+            if (error || !data || data.length === 0) {
                 alert('อีเมลหรือรหัสผ่านไม่ถูกต้อง!');
             } else {
                 localStorage.setItem('isLoggedIn_hw', 'true');
-                localStorage.setItem('user_fullname', data.fullname);
-                localStorage.setItem('user_position', data.position);
                 showApp();
             }
         });
 
         document.getElementById('btnLogout').addEventListener('click', () => {
             localStorage.removeItem('isLoggedIn_hw');
-            localStorage.removeItem('user_fullname');
-            localStorage.removeItem('user_position');
             location.reload();
         });
 
@@ -164,7 +194,10 @@
                 attribution: '&copy; OpenStreetMap contributors'
             }).addTo(map);
 
+            markersLayer.addTo(map);
+
             map.on('click', function(e) {
+                if (document.getElementById('edit_id').value) return;
                 const lat = e.latlng.lat;
                 const lng = e.latlng.lng;
                 document.getElementById('lat').value = lat;
@@ -183,23 +216,67 @@
                 console.error(error);
                 return;
             }
+            allLocations = data || [];
+            renderMarkers(allLocations);
+        }
 
-            data.forEach(loc => {
+        function renderMarkers(locations) {
+            markersLayer.clearLayers(); // ล้างหมุดเดิมก่อนแสดงผลใหม่
+            locations.forEach(loc => {
                 if (loc.lat && loc.lng) {
                     const popupContent = `
                         <b>${loc.name}</b><br>
                         <b>สถานะ:</b> ${loc.license_status || '-'}<br>
                         <b>หมดอายุ:</b> ${loc.license_expire_date || '-'}<br>
                         <b>การกำจัด:</b> ${loc.disposal_method || '-'}<br>
-                        <b>รายละเอียด:</b> ${loc.description || '-'}
+                        <b>รายละเอียด:</b> ${loc.description || '-'}<br><br>
+                        <button onclick="editLocation(${loc.id})" style="padding:2px 8px; background:#ffc107; border:none; border-radius:3px; cursor:pointer;">แก้ไข</button>
+                        <button onclick="deleteLocation(${loc.id})" style="padding:2px 8px; background:#dc3545; color:white; border:none; border-radius:3px; cursor:pointer;">ลบ</button>
                     `;
-                    L.marker([loc.lat, loc.lng]).addTo(map).bindPopup(popupContent);
+                    const marker = L.marker([loc.lat, loc.lng]).bindPopup(popupContent);
+                    markersLayer.addLayer(marker);
+                    loc.markerRef = marker; // เก็บอ้างอิงหมุดไว้ซูมหา
                 }
             });
         }
 
+        // ฟังก์ชันกรองค้นหาชื่อกิจการ
+        function filterLocations() {
+            const keyword = document.getElementById('searchInput').value.toLowerCase().trim();
+            const resultsContainer = document.getElementById('searchResults');
+            resultsContainer.innerHTML = '';
+
+            if (!keyword) {
+                renderMarkers(allLocations);
+                return;
+            }
+
+            const filtered = allLocations.filter(loc => loc.name.toLowerCase().includes(keyword));
+            renderMarkers(filtered);
+
+            if (filtered.length === 0) {
+                resultsContainer.innerHTML = '<div style="padding: 5px; color: #666; font-size: 12px;">ไม่พบชื่อกิจการที่ค้นหา</div>';
+                return;
+            }
+
+            filtered.forEach(loc => {
+                const div = document.createElement('div');
+                div.className = 'location-item';
+                div.innerHTML = `<b>${loc.name}</b><br><small>สถานะ: ${loc.license_status}</small>`;
+                div.onclick = () => {
+                    map.setView([loc.lat, loc.lng], 16); // ซูมไปที่ตำแหน่งกิจการนั้น
+                    if (loc.markerRef) {
+                        loc.markerRef.openPopup();
+                    }
+                };
+                resultsContainer.appendChild(div);
+            });
+        }
+
+        // บันทึกข้อมูล (เพิ่มใหม่ หรือ อัปเดต)
         document.getElementById('locationForm').addEventListener('submit', async function(e) {
             e.preventDefault();
+            const editId = document.getElementById('edit_id').value;
             const formData = {
                 name: document.getElementById('name').value,
                 lat: parseFloat(document.getElementById('lat').value),
@@ -210,14 +287,109 @@
                 disposal_method: document.getElementById('disposal_method').value
             };
 
-            const { error } = await db.from('locations').insert([formData]);
-            if (error) {
-                alert('เกิดข้อผิดพลาด: ' + error.message);
+            if (editId) {
+                const { error } = await db.from('locations').update(formData).eq('id', editId);
+                if (error) alert('แก้ไขไม่สำเร็จ: ' + error.message);
+                else { alert('แก้ไขข้อมูลสำเร็จ!'); location.reload(); }
             } else {
-                alert('บันทึกข้อมูลสำเร็จ!');
-                location.reload();
+                const { error } = await db.from('locations').insert([formData]);
+                if (error) alert('บันทึกไม่สำเร็จ: ' + error.message);
+                else { alert('บันทึกข้อมูลสำเร็จ!'); location.reload(); }
             }
         });
+
+        window.editLocation = function(id) {
+            const loc = allLocations.find(item => item.id === id);
+            if (!loc) return;
+
+            document.getElementById('edit_id').value = loc.id;
+            document.getElementById('name').value = loc.name;
+            document.getElementById('lat').value = loc.lat;
+            document.getElementById('lng').value = loc.lng;
+            document.getElementById('description').value = loc.description || '';
+            document.getElementById('license_status').value = loc.license_status || 'ยังไม่ขอ';
+            document.getElementById('license_expire_date').value = loc.license_expire_date || '';
+            document.getElementById('disposal_method').value = loc.disposal_method || 'มีผู้มารับ';
+
+            document.getElementById('form-title').innerText = 'แก้ไขข้อมูลสถานประกอบการ';
+            document.getElementById('btnSave').innerText = 'บันทึกการแก้ไข';
+            document.getElementById('btnCancelEdit').style.display = 'block';
+            document.getElementById('sidebar').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetForm() {
+            document.getElementById('locationForm').reset();
+            document.getElementById('edit_id').value = '';
+            document.getElementById('form-title').innerText = 'บันทึกข้อมูลสถานประกอบการ';
+            document.getElementById('btnSave').innerText = 'บันทึกข้อมูล';
+            document.getElementById('btnCancelEdit').style.display = 'none';
+        }
+
+        window.deleteLocation = async function(id) {
+            if (confirm('คุณต้องการลบข้อมูลนี้ใช่หรือไม่?')) {
+                const { error } = await db.from('locations').delete().eq('id', id);
+                if (error) alert('ลบไม่สำเร็จ: ' + error.message);
+                else { alert('ลบข้อมูลเรียบร้อยแล้ว'); location.reload(); }
+            }
+        }
+
+        function exportToExcel() {
+            if (allLocations.length === 0) { alert('ไม่มีข้อมูลสำหรับส่งออก'); return; }
+            const worksheet = XLSX.utils.json_to_sheet(allLocations);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Hazardous Waste Locations");
+            XLSX.writeFile(workbook, "hazardous_waste_locations.xlsx");
+        }
+
+        function backupData() {
+            if (allLocations.length === 0) { alert('ไม่มีข้อมูลสำหรับสำรอง'); return; }
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allLocations, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "hazardous_waste_backup_" + new Date().toISOString().slice(0,10) + ".json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        async function importFromExcel(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(sheet);
+
+                    if (rows.length === 0) { alert('ไม่พบข้อมูลในไฟล์ Excel'); return; }
+
+                    const cleanRows = rows.map(r => ({
+                        name: r.name || r.ชื่อกิจการ,
+                        lat: parseFloat(r.lat || r.ละติจูด),
+                        lng: parseFloat(r.lng || r.ลองจิจูด),
+                        description: r.description || r.รายละเอียดกิจการ || '',
+                        license_status: r.license_status || r.สถานะการขออนุญาต || 'ยังไม่ขอ',
+                        license_expire_date: r.license_expire_date || r.วันหมดอายุใบอนุญาต || null,
+                        disposal_method: r.disposal_method || r.วิธีการกำจัดขยะอันตราย || 'มีผู้มารับ'
+                    }));
+
+                    const { error } = await db.from('locations').insert(cleanRows);
+                    if (error) {
+                        alert('นำเข้าข้อมูลไม่สำเร็จ: ' + error.message);
+                    } else {
+                        alert('นำเข้าข้อมูลจาก Excel สำเร็จ!');
+                        location.reload();
+                    }
+                } catch (err) {
+                    alert('เกิดข้อผิดพลาดในการอ่านไฟล์: ' + err.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
     </script>
 </body>
 </html>
