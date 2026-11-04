@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>ระบบแผนที่ขยะอันตราย - อบต.เมืองเก่า</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        
+        #login-container {
+            display: flex; justify-content: center; align-items: center; height: 100vh; background: #e9ecef;
+        }
+        .login-box {
+            background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 350px;
+        }
+        .login-box h2 { margin-top: 0; text-align: center; color: #333; }
+        
+        #app-container {
+            display: none; height: 100vh; display: flex;
+        }
+        #sidebar { width: 400px; padding: 20px; box-sizing: border-box; background: #f8f9fa; overflow-y: auto; border-right: 1px solid #ddd; }
+        #map { flex-grow: 1; height: 100%; }
+        
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input, select, textarea { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        textarea { resize: vertical; height: 60px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; width: 100%; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        button:hover { background: #0056b3; }
+        .btn-logout { background: #dc3545; margin-top: 20px; }
+        .btn-logout:hover { background: #c82333; }
+    </style>
+</head>
+<body>
+
+    <!-- หน้าจอเข้าสู่ระบบ (ใช้อีเมลและรหัสผ่าน) -->
+    <div id="login-container">
+        <div class="login-box">
+            <h2>เข้าสู่ระบบ (ระบบที่ 3)</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>อีเมล (Email):</label>
+                    <input type="email" id="login_email" required placeholder="admin@mueangkao.go.th">
+                </div>
+                <div class="form-group">
+                    <label>รหัสผ่าน (Password):</label>
+                    <input type="password" id="login_pass" required placeholder="กรอกรหัสผ่าน">
+                </div>
+                <button type="submit">เข้าสู่ระบบ</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- หน้าจอแอปพลิเคชันหลัก -->
+    <div id="app-container" style="display: none;">
+        <div id="sidebar">
+            <h2>บันทึกข้อมูลสถานประกอบการ</h2>
+            <form id="locationForm">
+                <div class="form-group">
+                    <label>1. ชื่อกิจการ:</label>
+                    <input type="text" id="name" required placeholder="ระบุชื่อกิจการ">
+                </div>
+                <div class="form-group">
+                    <label>2. พิกัด (Lat, Lng):</label>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="text" id="lat" readonly required placeholder="Lat">
+                        <input type="text" id="lng" readonly required placeholder="Lng">
+                    </div>
+                    <small style="color: #666;">*คลิกเลือกตำแหน่งบนแผนที่</small>
+                </div>
+                <div class="form-group">
+                    <label>3. รายละเอียดกิจการ:</label>
+                    <textarea id="description" placeholder="ลักษณะกิจการ / ขยะอันตราย"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>4. สถานะการขออนุญาต:</label>
+                    <select id="license_status" required>
+                        <option value="ยังไม่ขอ">ยังไม่ขอ</option>
+                        <option value="ขอแล้ว">ขอแล้ว</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>5. วันหมดอายุใบอนุญาต:</label>
+                    <input type="date" id="license_expire_date">
+                </div>
+                <div class="form-group">
+                    <label>6. วิธีการกำจัดขยะอันตราย:</label>
+                    <select id="disposal_method" required>
+                        <option value="มีผู้มารับ">มีผู้มารับ (เอกชน/อบต.)</option>
+                        <option value="นำส่งเอง">นำส่งเอง</option>
+                        <option value="อื่นๆ">อื่นๆ</option>
+                    </select>
+                </div>
+                <button type="submit">บันทึกข้อมูลลง Schema hazardous_waste</button>
+            </form>
+            <button class="btn-logout" id="btnLogout">ออกจากระบบ</button>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // ตั้งค่าการเชื่อมต่อ Supabase ระบุ Schema เป็น hazardous_waste
+        const SUPABASE_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
+        
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            db: { schema: 'hazardous_waste' }
+        });
+
+        let map, tempMarker = null;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('isLoggedIn_hw') === 'true') {
+                showApp();
+            }
+        });
+
+        // ล็อกอินเช็คอีเมลและรหัสผ่านกับตาราง app_users
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const emailInput = document.getElementById('login_email').value;
+            const passInput = document.getElementById('login_pass').value;
+
+            const { data, error } = await supabase
+                .from('app_users')
+                .select('*')
+                .eq('email', emailInput)
+                .eq('password', passInput)
+                .single();
+
+            if (error || !data) {
+                alert('อีเมลหรือรหัสผ่านไม่ถูกต้อง!');
+            } else {
+                // เก็บสถานะและสามารถดึงชื่อ-ตำแหน่งมาแสดงต้อนรับได้ถ้าต้องการ
+                localStorage.setItem('isLoggedIn_hw', 'true');
+                localStorage.setItem('user_fullname', data.fullname);
+                localStorage.setItem('user_position', data.position);
+                showApp();
+            }
+        });
+
+        document.getElementById('btnLogout').addEventListener('click', () => {
+            localStorage.removeItem('isLoggedIn_hw');
+            localStorage.removeItem('user_fullname');
+            localStorage.removeItem('user_position');
+            location.reload();
+        });
+
+        function showApp() {
+            document.getElementById('login-container').style.display = 'none';
+            document.getElementById('app-container').style.display = 'flex';
+            initMap();
+        }
+
+        function initMap() {
+            if (map) return;
+            map = L.map('map').setView([13.99, 101.73], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            map.on('click', function(e) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                document.getElementById('lat').value = lat;
+                document.getElementById('lng').value = lng;
+
+                if (tempMarker) map.removeLayer(tempMarker);
+                tempMarker = L.marker([lat, lng]).addTo(map).bindPopup('จุดที่เลือก').openPopup();
+            });
+
+            loadLocations();
+        }
+
+        async function loadLocations() {
+            const { data, error } = await supabase.from('locations').select('*');
+            if (error) {
+                console.error(error);
+                return;
+            }
+
+            data.forEach(loc => {
+                if (loc.lat && loc.lng) {
+                    const popupContent = `
+                        <b>${loc.name}</b><br>
+                        <b>สถานะ:</b> ${loc.license_status || '-'}<br>
+                        <b>หมดอายุ:</b> ${loc.license_expire_date || '-'}<br>
+                        <b>การกำจัด:</b> ${loc.disposal_method || '-'}<br>
+                        <b>รายละเอียด:</b> ${loc.description || '-'}
+                    `;
+                    L.marker([loc.lat, loc.lng]).addTo(map).bindPopup(popupContent);
+                }
+            });
+        }
+
+        document.getElementById('locationForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = {
+                name: document.getElementById('name').value,
+                lat: parseFloat(document.getElementById('lat').value),
+                lng: parseFloat(document.getElementById('lng').value),
+                description: document.getElementById('description').value,
+                license_status: document.getElementById('license_status').value,
+                license_expire_date: document.getElementById('license_expire_date').value || null,
+                disposal_method: document.getElementById('disposal_method').value
+            };
+
+            const { error } = await supabase.from('locations').insert([formData]);
+            if (error) {
+                alert('เกิดข้อผิดพลาด: ' + error.message);
+            } else {
+                alert('บันทึกข้อมูลสำเร็จ!');
+                location.reload();
+            }
+        });
+    </script>
+</body>
+</html>
