@@ -236,15 +236,24 @@
             locations.forEach(loc => {
                 if (loc.lat && loc.lng) {
                     const typeLabel = loc.location_type || 'สถานประกอบการ/กิจการ';
+                    // สร้างลิงก์ Google Maps สำหรับนำทาง
+                    const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
+
                     const popupContent = `
-                        <b>${loc.name}</b><br>
-                        <b>ประเภท:</b> ${typeLabel}<br>
-                        <b>สถานะใบอนุญาต:</b> ${loc.license_status || '-'}<br>
-                        <b>หมดอายุ:</b> ${loc.license_expire_date || '-'}<br>
-                        <b>การกำจัด:</b> ${loc.disposal_method || '-'}<br>
-                        <b>รายละเอียด:</b> ${loc.description || '-'}<br><br>
-                        <button onclick="editLocation(${loc.id})" style="padding:2px 8px; background:#ffc107; border:none; border-radius:3px; cursor:pointer;">แก้ไข</button>
-                        <button onclick="deleteLocation(${loc.id})" style="padding:2px 8px; background:#dc3545; color:white; border:none; border-radius:3px; cursor:pointer;">ลบ</button>
+                        <div style="font-size: 14px; line-height: 1.5;">
+                            <b>${loc.name}</b><br>
+                            <b>ประเภท:</b> ${typeLabel}<br>
+                            <b>พิกัด GPS:</b> ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}<br>
+                            <b>สถานะใบอนุญาต:</b> ${loc.license_status || '-'}<br>
+                            <b>หมดอายุ:</b> ${loc.license_expire_date || '-'}<br>
+                            <b>การกำจัด:</b> ${loc.disposal_method || '-'}<br>
+                            <b>รายละเอียด:</b> ${loc.description || '-'}<br><br>
+                            <a href="${gmapsUrl}" target="_blank" style="display: block; text-align: center; background: #007bff; color: white; padding: 6px; text-decoration: none; border-radius: 4px; margin-bottom: 5px; font-weight: bold;">🚗 นำทาง (Google Maps)</a>
+                            <div style="display: flex; gap: 5px;">
+                                <button onclick="editLocation(${loc.id})" style="flex: 1; padding:4px; background:#ffc107; border:none; border-radius:3px; cursor:pointer; font-weight: bold;">แก้ไข</button>
+                                <button onclick="deleteLocation(${loc.id})" style="flex: 1; padding:4px; background:#dc3545; color:white; border:none; border-radius:3px; cursor:pointer; font-weight: bold;">ลบ</button>
+                            </div>
+                        </div>
                     `;
                     const marker = L.marker([loc.lat, loc.lng]).bindPopup(popupContent);
                     markersLayer.addLayer(marker);
@@ -346,7 +355,6 @@
             }
         }
 
-        // ฟังก์ชันดาวน์โหลด Template Excel (รองรับ location_type)
         function downloadTemplate() {
             const templateData = [
                 {
