@@ -5,7 +5,7 @@
     <title>ระบบแผนที่ขยะอันตรายในเขต อบต.เมืองเก่า</title>
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- SheetJS สำหรับ Export/Import Excel -->
+    <!-- SheetJS สำหรับ Export/Import Excel และสร้าง Template -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         body { margin: 0; padding: 0; font-family: sans-serif; }
@@ -38,6 +38,8 @@
         .btn-warning:hover { background: #e0a800; }
         .btn-danger { background: #dc3545; }
         .btn-danger:hover { background: #c82333; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-info:hover { background: #138496; }
         
         .tools-section { background: #e2e6ea; padding: 10px; border-radius: 6px; margin-top: 20px; }
         .search-box { background: #e9ecef; padding: 10px; border-radius: 6px; margin-bottom: 15px; }
@@ -69,22 +71,29 @@
     <!-- หน้าจอแอปพลิเคชันหลัก -->
     <div id="app-container" style="display: none;">
         <div id="sidebar">
-            <!-- ส่วนค้นหาชื่อกิจการ -->
+            <!-- ส่วนค้นหาชื่อสถานที่/กิจการ -->
             <div class="search-box">
-                <label style="font-size: 13px;">🔍 ค้นหาชื่อกิจการ:</label>
-                <input type="text" id="searchInput" placeholder="พิมพ์ชื่อกิจการเพื่อค้นหา..." oninput="filterLocations()">
+                <label style="font-size: 13px;">🔍 ค้นหาชื่อกิจการ / จุดรวมชุมชน:</label>
+                <input type="text" id="searchInput" placeholder="พิมพ์ชื่อเพื่อค้นหา..." oninput="filterLocations()">
                 <div id="searchResults" style="max-height: 150px; overflow-y: auto; margin-top: 5px;"></div>
             </div>
 
-            <h2 id="form-title">บันทึกข้อมูลสถานประกอบการ</h2>
+            <h2 id="form-title">บันทึกข้อมูลแหล่งกำเนิด / จุดรวม</h2>
             <form id="locationForm">
                 <input type="hidden" id="edit_id">
                 <div class="form-group">
-                    <label>1. ชื่อกิจการ:</label>
-                    <input type="text" id="name" required placeholder="ระบุชื่อกิจการ">
+                    <label>1. ประเภทสถานที่:</label>
+                    <select id="location_type">
+                        <option value="สถานประกอบการ/กิจการ">สถานประกอบการ / กิจการ</option>
+                        <option value="จุดรวมของชุมชน">จุดรวมของชุมชน (จุดทิ้ง/ศาลาประชาคม)</option>
+                    </select>
                 </div>
                 <div class="form-group">
-                    <label>2. พิกัด (Lat, Lng):</label>
+                    <label>2. ชื่อกิจการ / ชื่อจุดรวมชุมชน:</label>
+                    <input type="text" id="name" required placeholder="ระบุชื่อสถานที่">
+                </div>
+                <div class="form-group">
+                    <label>3. พิกัด (Lat, Lng):</label>
                     <div style="display: flex; gap: 5px;">
                         <input type="text" id="lat" readonly required placeholder="Lat">
                         <input type="text" id="lng" readonly required placeholder="Lng">
@@ -92,22 +101,23 @@
                     <small style="color: #666;">*คลิกเลือกตำแหน่งบนแผนที่</small>
                 </div>
                 <div class="form-group">
-                    <label>3. รายละเอียดกิจการ:</label>
-                    <textarea id="description" placeholder="ลักษณะกิจการ / ขยะอันตราย"></textarea>
+                    <label>4. รายละเอียดเพิ่มเติม:</label>
+                    <textarea id="description" placeholder="ลักษณะกิจการ / ประเภทขยะอันตราย / จุดรวบรวม"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>4. สถานะการขออนุญาต:</label>
+                    <label>5. สถานะการขออนุญาต (เฉพาะกิจการ):</label>
                     <select id="license_status" required>
-                        <option value="ยังไม่ขอ">ยังไม่ขอ</option>
                         <option value="ขอแล้ว">ขอแล้ว</option>
+                        <option value="ยังไม่ขอ">ยังไม่ขอ</option>
+                        <option value="ไม่ระบุ/ไม่ใช่กิจการ">ไม่ระบุ / ไม่ใช่กิจการ</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>5. วันหมดอายุใบอนุญาต:</label>
+                    <label>6. วันหมดอายุใบอนุญาต:</label>
                     <input type="date" id="license_expire_date">
                 </div>
                 <div class="form-group">
-                    <label>6. วิธีการกำจัดขยะอันตราย:</label>
+                    <label>7. วิธีการกำจัดขยะอันตราย:</label>
                     <select id="disposal_method" required>
                         <option value="มีผู้มารับ">มีผู้มารับ (เอกชน/อบต.)</option>
                         <option value="นำส่งเอง">นำส่งเอง</option>
@@ -120,8 +130,9 @@
 
             <!-- เครื่องมือจัดการข้อมูลเพิ่มเติม -->
             <div class="tools-section">
-                <h3>จัดการข้อมูลระบบ</h3>
-                <button class="btn-warning" onclick="exportToExcel()">📥 ส่งออกข้อมูลเป็น Excel</button>
+                <h3>จัดการข้อมูลและนำเข้า/ส่งออก</h3>
+                <button class="btn-info" onclick="downloadTemplate()">📊 ดาวน์โหลดเทมเพลต Excel</button>
+                <button class="btn-warning" onclick="exportToExcel()">📥 ส่งออกข้อมูลทั้งหมดเป็น Excel</button>
                 <button class="btn-success" onclick="backupData()">💾 สำรองข้อมูล (Backup JSON)</button>
                 <div style="margin-top: 10px;">
                     <label style="font-size: 13px;">📤 นำเข้าข้อมูลจาก Excel:</label>
@@ -148,7 +159,7 @@
 
         let map, tempMarker = null;
         let allLocations = [];
-        let markersLayer = L.layerGroup(); // เลเยอร์เก็บหมุดบนแผนที่เพื่อจัดการง่ายขึ้น
+        let markersLayer = L.layerGroup();
 
         window.addEventListener('DOMContentLoaded', () => {
             if (localStorage.getItem('isLoggedIn_hw') === 'true') {
@@ -221,12 +232,14 @@
         }
 
         function renderMarkers(locations) {
-            markersLayer.clearLayers(); // ล้างหมุดเดิมก่อนแสดงผลใหม่
+            markersLayer.clearLayers();
             locations.forEach(loc => {
                 if (loc.lat && loc.lng) {
+                    const typeLabel = loc.location_type || 'สถานประกอบการ/กิจการ';
                     const popupContent = `
                         <b>${loc.name}</b><br>
-                        <b>สถานะ:</b> ${loc.license_status || '-'}<br>
+                        <b>ประเภท:</b> ${typeLabel}<br>
+                        <b>สถานะใบอนุญาต:</b> ${loc.license_status || '-'}<br>
                         <b>หมดอายุ:</b> ${loc.license_expire_date || '-'}<br>
                         <b>การกำจัด:</b> ${loc.disposal_method || '-'}<br>
                         <b>รายละเอียด:</b> ${loc.description || '-'}<br><br>
@@ -235,12 +248,11 @@
                     `;
                     const marker = L.marker([loc.lat, loc.lng]).bindPopup(popupContent);
                     markersLayer.addLayer(marker);
-                    loc.markerRef = marker; // เก็บอ้างอิงหมุดไว้ซูมหา
+                    loc.markerRef = marker;
                 }
             });
         }
 
-        // ฟังก์ชันกรองค้นหาชื่อกิจการ
         function filterLocations() {
             const keyword = document.getElementById('searchInput').value.toLowerCase().trim();
             const resultsContainer = document.getElementById('searchResults');
@@ -255,16 +267,16 @@
             renderMarkers(filtered);
 
             if (filtered.length === 0) {
-                resultsContainer.innerHTML = '<div style="padding: 5px; color: #666; font-size: 12px;">ไม่พบชื่อกิจการที่ค้นหา</div>';
+                resultsContainer.innerHTML = '<div style="padding: 5px; color: #666; font-size: 12px;">ไม่พบชื่อที่ค้นหา</div>';
                 return;
             }
 
             filtered.forEach(loc => {
                 const div = document.createElement('div');
                 div.className = 'location-item';
-                div.innerHTML = `<b>${loc.name}</b><br><small>สถานะ: ${loc.license_status}</small>`;
+                div.innerHTML = `<b>${loc.name}</b><br><small>ประเภท: ${loc.location_type || 'กิจการ'}</small>`;
                 div.onclick = () => {
-                    map.setView([loc.lat, loc.lng], 16); // ซูมไปที่ตำแหน่งกิจการนั้น
+                    map.setView([loc.lat, loc.lng], 16);
                     if (loc.markerRef) {
                         loc.markerRef.openPopup();
                     }
@@ -273,11 +285,11 @@
             });
         }
 
-        // บันทึกข้อมูล (เพิ่มใหม่ หรือ อัปเดต)
         document.getElementById('locationForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             const editId = document.getElementById('edit_id').value;
             const formData = {
+                location_type: document.getElementById('location_type').value,
                 name: document.getElementById('name').value,
                 lat: parseFloat(document.getElementById('lat').value),
                 lng: parseFloat(document.getElementById('lng').value),
@@ -303,15 +315,16 @@
             if (!loc) return;
 
             document.getElementById('edit_id').value = loc.id;
+            document.getElementById('location_type').value = loc.location_type || 'สถานประกอบการ/กิจการ';
             document.getElementById('name').value = loc.name;
             document.getElementById('lat').value = loc.lat;
             document.getElementById('lng').value = loc.lng;
             document.getElementById('description').value = loc.description || '';
-            document.getElementById('license_status').value = loc.license_status || 'ยังไม่ขอ';
+            document.getElementById('license_status').value = loc.license_status || 'ขอแล้ว';
             document.getElementById('license_expire_date').value = loc.license_expire_date || '';
             document.getElementById('disposal_method').value = loc.disposal_method || 'มีผู้มารับ';
 
-            document.getElementById('form-title').innerText = 'แก้ไขข้อมูลสถานประกอบการ';
+            document.getElementById('form-title').innerText = 'แก้ไขข้อมูลสถานที่';
             document.getElementById('btnSave').innerText = 'บันทึกการแก้ไข';
             document.getElementById('btnCancelEdit').style.display = 'block';
             document.getElementById('sidebar').scrollTo({ top: 0, behavior: 'smooth' });
@@ -320,7 +333,7 @@
         function resetForm() {
             document.getElementById('locationForm').reset();
             document.getElementById('edit_id').value = '';
-            document.getElementById('form-title').innerText = 'บันทึกข้อมูลสถานประกอบการ';
+            document.getElementById('form-title').innerText = 'บันทึกข้อมูลแหล่งกำเนิด / จุดรวม';
             document.getElementById('btnSave').innerText = 'บันทึกข้อมูล';
             document.getElementById('btnCancelEdit').style.display = 'none';
         }
@@ -331,6 +344,36 @@
                 if (error) alert('ลบไม่สำเร็จ: ' + error.message);
                 else { alert('ลบข้อมูลเรียบร้อยแล้ว'); location.reload(); }
             }
+        }
+
+        // ฟังก์ชันดาวน์โหลด Template Excel (รองรับ location_type)
+        function downloadTemplate() {
+            const templateData = [
+                {
+                    location_type: "สถานประกอบการ/กิจการ",
+                    name: "ตัวอย่าง ร้านค้า ก",
+                    lat: 13.99000,
+                    lng: 101.73000,
+                    description: "จำหน่ายแบตเตอรี่และสารเคมี",
+                    license_status: "ขอแล้ว",
+                    license_expire_date: "2027-12-31",
+                    disposal_method: "มีผู้มารับ"
+                },
+                {
+                    location_type: "จุดรวมของชุมชน",
+                    name: "ตัวอย่าง จุดทิ้งขยะอันตรายหมู่ 1",
+                    lat: 13.99200,
+                    lng: 101.73200,
+                    description: "ศาลาประชาคมหมู่บ้าน จุดรวบรวมถ่านไฟฉายและหลอดไฟ",
+                    license_status: "ไม่ระบุ/ไม่ใช่กิจการ",
+                    license_expire_date: "",
+                    disposal_method: "อบต.มารับ"
+                }
+            ];
+            const worksheet = XLSX.utils.json_to_sheet(templateData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Template");
+            XLSX.writeFile(workbook, "hazardous_waste_template.xlsx");
         }
 
         function exportToExcel() {
@@ -368,11 +411,12 @@
                     if (rows.length === 0) { alert('ไม่พบข้อมูลในไฟล์ Excel'); return; }
 
                     const cleanRows = rows.map(r => ({
+                        location_type: r.location_type || r.ประเภทสถานที่ || 'สถานประกอบการ/กิจการ',
                         name: r.name || r.ชื่อกิจการ,
                         lat: parseFloat(r.lat || r.ละติจูด),
                         lng: parseFloat(r.lng || r.ลองจิจูด),
-                        description: r.description || r.รายละเอียดกิจการ || '',
-                        license_status: r.license_status || r.สถานะการขออนุญาต || 'ยังไม่ขอ',
+                        description: r.description || r.รายละเอียดเพิ่มเติม || '',
+                        license_status: r.license_status || r.สถานะการขออนุญาต || 'ขอแล้ว',
                         license_expire_date: r.license_expire_date || r.วันหมดอายุใบอนุญาต || null,
                         disposal_method: r.disposal_method || r.วิธีการกำจัดขยะอันตราย || 'มีผู้มารับ'
                     }));
