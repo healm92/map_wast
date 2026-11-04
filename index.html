@@ -34,7 +34,7 @@
 </head>
 <body>
 
-    <!-- หน้าจอเข้าสู่ระบบ (ใช้อีเมลและรหัสผ่าน) -->
+    <!-- หน้าจอเข้าสู่ระบบ -->
     <div id="login-container">
         <div class="login-box">
             <h2>เข้าสู่ระบบ (ระบบที่ 3)</h2>
@@ -53,7 +53,7 @@
     </div>
 
     <!-- หน้าจอแอปพลิเคชันหลัก -->
-    <div id="app-container" style="display: none;">
+    <div id="app-container">
         <div id="sidebar">
             <h2>บันทึกข้อมูลสถานประกอบการ</h2>
             <form id="locationForm">
@@ -104,11 +104,11 @@
     <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-        // ตั้งค่าการเชื่อมต่อ Supabase ระบุ Schema เป็น hazardous_waste
+        // ตั้งค่าการเชื่อมต่อโดยใช้ตัวแปร db เพื่อไม่ให้ชนกับคีย์เวิร์ด supabase
         const SUPABASE_URL = 'https://pdoojfiwedjbrjvjtqth.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable__0KAOXCyM13SpC6S9DpfOw_ZKHUF4jd';
         
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
             db: { schema: 'hazardous_waste' }
         });
 
@@ -120,13 +120,13 @@
             }
         });
 
-        // ล็อกอินเช็คอีเมลและรหัสผ่านกับตาราง app_users
+        // ล็อกอินเช็คอีเมลและรหัสผ่าน
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const emailInput = document.getElementById('login_email').value;
             const passInput = document.getElementById('login_pass').value;
 
-            const { data, error } = await supabase
+            const { data, error } = await db
                 .from('app_users')
                 .select('*')
                 .eq('email', emailInput)
@@ -136,7 +136,6 @@
             if (error || !data) {
                 alert('อีเมลหรือรหัสผ่านไม่ถูกต้อง!');
             } else {
-                // เก็บสถานะและสามารถดึงชื่อ-ตำแหน่งมาแสดงต้อนรับได้ถ้าต้องการ
                 localStorage.setItem('isLoggedIn_hw', 'true');
                 localStorage.setItem('user_fullname', data.fullname);
                 localStorage.setItem('user_position', data.position);
@@ -179,7 +178,7 @@
         }
 
         async function loadLocations() {
-            const { data, error } = await supabase.from('locations').select('*');
+            const { data, error } = await db.from('locations').select('*');
             if (error) {
                 console.error(error);
                 return;
@@ -211,7 +210,7 @@
                 disposal_method: document.getElementById('disposal_method').value
             };
 
-            const { error } = await supabase.from('locations').insert([formData]);
+            const { error } = await db.from('locations').insert([formData]);
             if (error) {
                 alert('เกิดข้อผิดพลาด: ' + error.message);
             } else {
