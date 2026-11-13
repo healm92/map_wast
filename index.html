@@ -161,6 +161,17 @@
         let allLocations = [];
         let markersLayer = L.layerGroup();
 
+        // ฟังก์ชันช่วยป้องกัน XSS (HTML Escape) สำหรับข้อมูลที่แสดงผลบน Popup
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.toString()
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
             if (localStorage.getItem('isLoggedIn_hw') === 'true') {
                 showApp();
@@ -172,9 +183,10 @@
             const emailInput = document.getElementById('login_email').value.trim();
             const passInput = document.getElementById('login_pass').value.trim();
 
+            // หมายเหตุ: แนะนำให้เปลี่ยนไปใช้ Supabase Auth (supabase.auth.signInWithPassword) ในระบบจริง
             const { data, error } = await db
                 .from('app_users')
-                .select('*')
+                .select('id, email')
                 .eq('email', emailInput)
                 .eq('password', passInput);
 
@@ -235,19 +247,24 @@
             markersLayer.clearLayers();
             locations.forEach(loc => {
                 if (loc.lat && loc.lng) {
-                    const typeLabel = loc.location_type || 'สถานประกอบการ/กิจการ';
-                    // สร้างลิงก์ Google Maps สำหรับนำทาง
+                    const typeLabel = escapeHTML(loc.location_type || 'สถานประกอบการ/กิจการ');
+                    const safeName = escapeHTML(loc.name);
+                    const safeLicenseStatus = escapeHTML(loc.license_status || '-');
+                    const safeExpireDate = escapeHTML(loc.license_expire_date || '-');
+                    const safeDisposal = escapeHTML(loc.disposal_method || '-');
+                    const safeDescription = escapeHTML(loc.description || '-');
+
                     const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
 
                     const popupContent = `
                         <div style="font-size: 14px; line-height: 1.5;">
-                            <b>${loc.name}</b><br>
+                            <b>${safeName}</b><br>
                             <b>ประเภท:</b> ${typeLabel}<br>
                             <b>พิกัด GPS:</b> ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}<br>
-                            <b>สถานะใบอนุญาต:</b> ${loc.license_status || '-'}<br>
-                            <b>หมดอายุ:</b> ${loc.license_expire_date || '-'}<br>
-                            <b>การกำจัด:</b> ${loc.disposal_method || '-'}<br>
-                            <b>รายละเอียด:</b> ${loc.description || '-'}<br><br>
+                            <b>สถานะใบอนุญาต:</b> ${safeLicenseStatus}<br>
+                            <b>หมดอายุ:</b> ${safeExpireDate}<br>
+                            <b>การกำจัด:</b> ${safeDisposal}<br>
+                            <b>รายละเอียด:</b> ${safeDescription}<br><br>
                             <a href="${gmapsUrl}" target="_blank" style="display: block; text-align: center; background: #007bff; color: white; padding: 6px; text-decoration: none; border-radius: 4px; margin-bottom: 5px; font-weight: bold;">🚗 นำทาง (Google Maps)</a>
                             <div style="display: flex; gap: 5px;">
                                 <button onclick="editLocation(${loc.id})" style="flex: 1; padding:4px; background:#ffc107; border:none; border-radius:3px; cursor:pointer; font-weight: bold;">แก้ไข</button>
@@ -272,7 +289,7 @@
                 return;
             }
 
-            const filtered = allLocations.filter(loc => loc.name.toLowerCase().includes(keyword));
+            const filtered = allLocations.filter(loc => loc.name && loc.name.toLowerCase().includes(keyword));
             renderMarkers(filtered);
 
             if (filtered.length === 0) {
@@ -283,7 +300,7 @@
             filtered.forEach(loc => {
                 const div = document.createElement('div');
                 div.className = 'location-item';
-                div.innerHTML = `<b>${loc.name}</b><br><small>ประเภท: ${loc.location_type || 'กิจการ'}</small>`;
+                div.innerHTML = `<b>${escapeHTML(loc.name)}</b><br><small>ประเภท: ${escapeHTML(loc.location_type || 'กิจการ')}</small>`;
                 div.onclick = () => {
                     map.setView([loc.lat, loc.lng], 16);
                     if (loc.markerRef) {
@@ -299,10 +316,10 @@
             const editId = document.getElementById('edit_id').value;
             const formData = {
                 location_type: document.getElementById('location_type').value,
-                name: document.getElementById('name').value,
+                name: document.getElementById('name').value.trim(),
                 lat: parseFloat(document.getElementById('lat').value),
                 lng: parseFloat(document.getElementById('lng').value),
-                description: document.getElementById('description').value,
+                description: document.getElementById('description').value.trim(),
                 license_status: document.getElementById('license_status').value,
                 license_expire_date: document.getElementById('license_expire_date').value || null,
                 disposal_method: document.getElementById('disposal_method').value
@@ -325,9 +342,9 @@
 
             document.getElementById('edit_id').value = loc.id;
             document.getElementById('location_type').value = loc.location_type || 'สถานประกอบการ/กิจการ';
-            document.getElementById('name').value = loc.name;
-            document.getElementById('lat').value = loc.lat;
-            document.getElementById('lng').value = loc.lng;
+            document.getElementById('name').value = loc.name || '';
+            document.getElementById('lat').value = loc.lat || '';
+            document.getElementById('lng').value = loc.lng || '';
             document.getElementById('description').value = loc.description || '';
             document.getElementById('license_status').value = loc.license_status || 'ขอแล้ว';
             document.getElementById('license_expire_date').value = loc.license_expire_date || '';
@@ -420,10 +437,10 @@
 
                     const cleanRows = rows.map(r => ({
                         location_type: r.location_type || r.ประเภทสถานที่ || 'สถานประกอบการ/กิจการ',
-                        name: r.name || r.ชื่อกิจการ,
+                        name: (r.name || r.ชื่อกิจการ || '').toString().trim(),
                         lat: parseFloat(r.lat || r.ละติจูด),
                         lng: parseFloat(r.lng || r.ลองจิจูด),
-                        description: r.description || r.รายละเอียดเพิ่มเติม || '',
+                        description: (r.description || r.รายละเอียดเพิ่มเติม || '').toString().trim(),
                         license_status: r.license_status || r.สถานะการขออนุญาต || 'ขอแล้ว',
                         license_expire_date: r.license_expire_date || r.วันหมดอายุใบอนุญาต || null,
                         disposal_method: r.disposal_method || r.วิธีการกำจัดขยะอันตราย || 'มีผู้มารับ'
