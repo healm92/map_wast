@@ -161,7 +161,7 @@
         let allLocations = [];
         let markersLayer = L.layerGroup();
 
-        // ฟังก์ชันช่วยป้องกัน XSS (HTML Escape) สำหรับข้อมูลที่แสดงผลบน Popup
+        // ฟังก์ชันป้องกัน XSS
         function escapeHTML(str) {
             if (!str) return '';
             return str.toString()
@@ -172,34 +172,35 @@
                 .replace(/'/g, '&#039;');
         }
 
-        window.addEventListener('DOMContentLoaded', () => {
-            if (localStorage.getItem('isLoggedIn_hw') === 'true') {
+        // ตรวจสอบ Session เมื่อเปิดหน้าเว็บ
+        window.addEventListener('DOMContentLoaded', async () => {
+            const { data: { session } } = await db.auth.getSession();
+            if (session) {
                 showApp();
             }
         });
 
+        // ระบบ Login ผ่าน Supabase Auth
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const emailInput = document.getElementById('login_email').value.trim();
             const passInput = document.getElementById('login_pass').value.trim();
 
-            // หมายเหตุ: แนะนำให้เปลี่ยนไปใช้ Supabase Auth (supabase.auth.signInWithPassword) ในระบบจริง
-            const { data, error } = await db
-                .from('app_users')
-                .select('id, email')
-                .eq('email', emailInput)
-                .eq('password', passInput);
+            const { data, error } = await db.auth.signInWithPassword({
+                email: emailInput,
+                password: passInput,
+            });
 
-            if (error || !data || data.length === 0) {
-                alert('อีเมลหรือรหัสผ่านไม่ถูกต้อง!');
+            if (error) {
+                alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message);
             } else {
-                localStorage.setItem('isLoggedIn_hw', 'true');
                 showApp();
             }
         });
 
-        document.getElementById('btnLogout').addEventListener('click', () => {
-            localStorage.removeItem('isLoggedIn_hw');
+        // ระบบ Logout
+        document.getElementById('btnLogout').addEventListener('click', async () => {
+            await db.auth.signOut();
             location.reload();
         });
 
@@ -237,6 +238,7 @@
             const { data, error } = await db.from('locations').select('*');
             if (error) {
                 console.error(error);
+                alert('ไม่สามารถโหลดข้อมูลได้ (อาจติด RLS Policy): ' + error.message);
                 return;
             }
             allLocations = data || [];
