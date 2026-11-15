@@ -206,7 +206,7 @@
             }
         }
 
-        // ตรวจสอบ Session และดึง Role จากตาราง app_users โดยตรง
+        // ตรวจสอบ Session และดึง Role จากตาราง app_users โดยตรง (รองรับ UUID)
         window.addEventListener('DOMContentLoaded', async () => {
             const { data: { session } } = await db.auth.getSession();
             if (session) {
@@ -339,7 +339,6 @@
                     const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
 
                     let actionButtons = '';
-                    // ป้องกันการแอบแสดงปุ่มแก้ไข/ลบผ่าน Console โดยเช็คตัวแปรจริงร่วมกับโครงสร้าง UI
                     if (verifiedUserRole === 'admin') {
                         actionButtons = `
                             <div style="display: flex; gap: 5px; margin-top: 8px;">
@@ -401,7 +400,7 @@
             });
         }
 
-        // ระบบบันทึกข้อมูล (Double-check สิทธิ์ฝั่ง Client ควบคู่กับ Supabase RLS)
+        // ระบบบันทึกข้อมูล
         const locationForm = document.getElementById('locationForm');
         if (locationForm) {
             locationForm.addEventListener('submit', async function(e) {
