@@ -82,8 +82,8 @@
                 <div id="searchResults" style="max-height: 150px; overflow-y: auto; margin-top: 5px;"></div>
             </div>
 
-            <!-- ฟอร์มบันทึกข้อมูล (ซ่อนสำหรับ User ทั่วไปที่ไม่ใช่ Admin) -->
-            <div id="adminFormContainer">
+            <!-- ฟอร์มบันทึกข้อมูล (ควบคุมสิทธิ์การแสดงผลตาม Role จริงจาก DB) -->
+            <div id="adminFormContainer" style="display:none;">
                 <h2 id="form-title">บันทึกข้อมูลแหล่งกำเนิด / จุดรวม</h2>
                 <form id="locationForm">
                     <input type="hidden" id="edit_id">
@@ -167,7 +167,7 @@
         let map, tempMarker = null;
         let allLocations = [];
         let markersLayer = L.layerGroup();
-        let currentUserRole = 'user'; // ค่าเริ่มต้นเป็นผู้ใช้ทั่วไป
+        let verifiedUserRole = 'user'; // ตัวแปรเก็บสิทธิ์ที่ตรวจสอบจากฐานข้อมูลจริง ป้องกันการแฮกผ่าน Console
 
         // ฟังก์ชันป้องกัน XSS
         function escapeHTML(str) {
@@ -180,7 +180,6 @@
                 .replace(/'/g, '&#039;');
         }
 
-        // ฟังก์ชันตรวจสอบและกรองพิกัดให้ปลอดภัย พร้อมจำกัดช่วงพิกัดจริง
         function sanitizeCoordinate(value) {
             if (!value) return NaN;
             const cleaned = value.toString().replace(/[^0-9.-]/g, '');
@@ -207,15 +206,15 @@
             }
         }
 
-        // ตรวจสอบ Session และดึง Role ของผู้ใช้จากตาราง app_users
+        // ตรวจสอบ Session และดึง Role จากตาราง app_users โดยตรง
         window.addEventListener('DOMContentLoaded', async () => {
             const { data: { session } } = await db.auth.getSession();
             if (session) {
-                await checkUserRoleAndInit(session.user.id);
+                await verifyRoleAndLoadApp(session.user.id);
             }
         });
 
-        async function checkUserRoleAndInit(userId) {
+        async function verifyRoleAndLoadApp(userId) {
             try {
                 const { data, error } = await db
                     .from('app_users')
@@ -223,11 +222,15 @@
                     .eq('id', userId)
                     .single();
 
-                if (data && data.role) {
-                    currentUserRole = data.role;
+                if (error) {
+                    console.error('Database role check error:', error.message);
+                    verifiedUserRole = 'user';
+                } else if (data && data.role) {
+                    verifiedUserRole = data.role;
                 }
             } catch (err) {
-                console.error('ไม่สามารถดึงข้อมูลสิทธิ์ผู้ใช้ได้:', err);
+                console.error('Error verifying role:', err);
+                verifiedUserRole = 'user';
             }
 
             showApp();
@@ -247,7 +250,7 @@
             if (error) {
                 alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message);
             } else {
-                await checkUserRoleAndInit(data.user.id);
+                await verifyRoleAndLoadApp(data.user.id);
             }
         });
 
@@ -265,7 +268,7 @@
             const adminForm = document.getElementById('adminFormContainer');
             const adminTools = document.getElementById('adminToolsContainer');
 
-            if (currentUserRole === 'admin') {
+            if (verifiedUserRole === 'admin') {
                 badge.style.display = 'block';
                 badge.style.background = '#d4edda';
                 badge.style.color = '#155724';
@@ -296,7 +299,7 @@
 
             markersLayer.addTo(map);
 
-            if (currentUserRole === 'admin') {
+            if (verifiedUserRole === 'admin') {
                 map.on('click', function(e) {
                     const lat = e.latlng.lat;
                     const lng = e.latlng.lng;
@@ -336,7 +339,8 @@
                     const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
 
                     let actionButtons = '';
-                    if (currentUserRole === 'admin') {
+                    // ป้องกันการแอบแสดงปุ่มแก้ไข/ลบผ่าน Console โดยเช็คตัวแปรจริงร่วมกับโครงสร้าง UI
+                    if (verifiedUserRole === 'admin') {
                         actionButtons = `
                             <div style="display: flex; gap: 5px; margin-top: 8px;">
                                 <button onclick="editLocation(${loc.id})" style="flex: 1; padding:4px; background:#ffc107; border:none; border-radius:3px; cursor:pointer; font-weight: bold; color:#333;">แก้ไข</button>
@@ -397,13 +401,13 @@
             });
         }
 
-        // ระบบบันทึกข้อมูล (จำกัดเฉพาะ Admin)
+        // ระบบบันทึกข้อมูล (Double-check สิทธิ์ฝั่ง Client ควบคู่กับ Supabase RLS)
         const locationForm = document.getElementById('locationForm');
         if (locationForm) {
             locationForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
-                if (currentUserRole !== 'admin') {
-                    alert('คุณไม่มีสิทธิ์ดำเนินการนี้');
+                if (verifiedUserRole !== 'admin') {
+                    alert('ไม่อนุญาต: คุณไม่มีสิทธิ์ดำเนินการนี้');
                     return;
                 }
 
@@ -437,18 +441,18 @@
 
                 if (editId) {
                     const { error } = await db.from('locations').update(formData).eq('id', editId);
-                    if (error) alert('แก้ไขไม่สำเร็จ: ' + error.message);
+                    if (error) alert('แก้ไขไม่สำเร็จ (ตรวจสอบสิทธิ์ RLS): ' + error.message);
                     else { alert('แก้ไขข้อมูลสำเร็จ!'); location.reload(); }
                 } else {
                     const { error } = await db.from('locations').insert([formData]);
-                    if (error) alert('บันทึกไม่สำเร็จ: ' + error.message);
+                    if (error) alert('บันทึกไม่สำเร็จ (ตรวจสอบสิทธิ์ RLS): ' + error.message);
                     else { alert('บันทึกข้อมูลสำเร็จ!'); location.reload(); }
                 }
             });
         }
 
         window.editLocation = function(id) {
-            if (currentUserRole !== 'admin') return;
+            if (verifiedUserRole !== 'admin') return;
             const loc = allLocations.find(item => item.id === id);
             if (!loc) return;
 
@@ -481,19 +485,19 @@
         }
 
         window.deleteLocation = async function(id) {
-            if (currentUserRole !== 'admin') {
-                alert('คุณไม่มีสิทธิ์ลบข้อมูล');
+            if (verifiedUserRole !== 'admin') {
+                alert('ไม่อนุญาต: คุณไม่มีสิทธิ์ลบข้อมูล');
                 return;
             }
             if (confirm('คุณต้องการลบข้อมูลนี้ใช่หรือไม่?')) {
                 const { error } = await db.from('locations').delete().eq('id', id);
-                if (error) alert('ลบไม่สำเร็จ: ' + error.message);
+                if (error) alert('ลบไม่สำเร็จ (ตรวจสอบสิทธิ์ RLS): ' + error.message);
                 else { alert('ลบข้อมูลเรียบร้อยแล้ว'); location.reload(); }
             }
         }
 
         function downloadTemplate() {
-            if (currentUserRole !== 'admin') return;
+            if (verifiedUserRole !== 'admin') return;
             const templateData = [
                 {
                     location_type: "สถานประกอบการ/กิจการ",
@@ -513,7 +517,7 @@
         }
 
         function exportToExcel() {
-            if (currentUserRole !== 'admin') {
+            if (verifiedUserRole !== 'admin') {
                 alert('เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถส่งออกข้อมูลได้');
                 return;
             }
@@ -525,7 +529,7 @@
         }
 
         function backupData() {
-            if (currentUserRole !== 'admin') {
+            if (verifiedUserRole !== 'admin') {
                 alert('เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถสำรองข้อมูลได้');
                 return;
             }
@@ -540,8 +544,8 @@
         }
 
         async function importFromExcel(event) {
-            if (currentUserRole !== 'admin') {
-                alert('คุณไม่มีสิทธิ์นำเข้าข้อมูล');
+            if (verifiedUserRole !== 'admin') {
+                alert('ไม่อนุญาต: คุณไม่มีสิทธิ์นำเข้าข้อมูล');
                 return;
             }
             const file = event.target.files[0];
@@ -569,7 +573,7 @@
                         const lng = sanitizeCoordinate(r.lng || r.ลองจิจูด);
 
                         if (!name || !isValidLat(lat) || !isValidLng(lng)) {
-                            alert('พบข้อมูลใน Excel ไม่ถูกต้อง (เช่น ไม่มีชื่อ หรือพิกัดอยู่นอกช่วงที่กำหนด) กรุณาตรวจสอบไฟล์');
+                            alert('พบข้อมูลใน Excel ไม่ถูกต้อง (ไม่มีชื่อ หรือพิกัดอยู่นอกช่วง -90 ถึง 90 และ -180 ถึง 180)');
                             return;
                         }
 
@@ -587,7 +591,7 @@
 
                     const { error } = await db.from('locations').insert(cleanRows);
                     if (error) {
-                        alert('นำเข้าข้อมูลไม่สำเร็จ: ' + error.message);
+                        alert('นำเข้าข้อมูลไม่สำเร็จ (ตรวจสอบสิทธิ์ RLS): ' + error.message);
                     } else {
                         alert('นำเข้าข้อมูลจาก Excel สำเร็จ!');
                         location.reload();
