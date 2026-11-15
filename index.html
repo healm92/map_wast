@@ -95,10 +95,11 @@
                 <div class="form-group">
                     <label>3. พิกัด (Lat, Lng):</label>
                     <div style="display: flex; gap: 5px;">
-                        <input type="text" id="lat" readonly required placeholder="Lat">
-                        <input type="text" id="lng" readonly required placeholder="Lng">
+                        <!-- ปลดล็อคให้พิมพ์หรือวางค่าได้ และเพิ่มระบบกรองตัวเลขปลอดภัย -->
+                        <input type="text" id="lat" required placeholder="เช่น 13.99000" oninput="updateMarkerFromInput()">
+                        <input type="text" id="lng" required placeholder="เช่น 101.73000" oninput="updateMarkerFromInput()">
                     </div>
-                    <small style="color: #666;">*คลิกเลือกตำแหน่งบนแผนที่</small>
+                    <small style="color: #666;">*คลิกเลือกบนแผนที่ หรือพิมพ์/วางค่าพิกัดลงในช่องได้</small>
                 </div>
                 <div class="form-group">
                     <label>4. รายละเอียดเพิ่มเติม:</label>
@@ -161,7 +162,7 @@
         let allLocations = [];
         let markersLayer = L.layerGroup();
 
-        // ฟังก์ชันป้องกัน XSS
+        // ฟังก์ชันป้องกัน XSS (Sanitize HTML สำหรับข้อความทั่วไป)
         function escapeHTML(str) {
             if (!str) return '';
             return str.toString()
@@ -170,6 +171,26 @@
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
+        }
+
+        // ฟังก์ชันตรวจสอบและกรองพิกัดให้เป็นตัวเลขที่ปลอดภัย (ป้องกัน Script Injection ผ่านช่อง Lat/Lng)
+        function sanitizeCoordinate(value) {
+            if (!value) return NaN;
+            // ดึงเฉพาะตัวเลข เครื่องหมายลบ และจุดทศนิยมออก
+            const cleaned = value.toString().replace(/[^0-9.-]/g, '');
+            return parseFloat(cleaned);
+        }
+
+        // เมื่อผู้ใช้พิมพ์หรือวางค่าพิกัดลงในช่อง ให้ขยับหมุดบนแผนที่อัตโนมัติ (ถ้าพิกัดถูกต้อง)
+        function updateMarkerFromInput() {
+            const latVal = sanitizeCoordinate(document.getElementById('lat').value);
+            const lngVal = sanitizeCoordinate(document.getElementById('lng').value);
+
+            if (!isNaN(latVal) && !isNaN(lngVal) && latVal >= -90 && latVal <= 90 && lngVal >= -180 && lngVal <= 180) {
+                if (tempMarker) map.removeLayer(tempMarker);
+                tempMarker = L.marker([latVal, lngVal]).addTo(map).bindPopup('พิกัดที่ระบุ').openPopup();
+                map.setView([latVal, lngVal], 15);
+            }
         }
 
         // ตรวจสอบ Session เมื่อเปิดหน้าเว็บ
@@ -221,11 +242,10 @@
             markersLayer.addTo(map);
 
             map.on('click', function(e) {
-                if (document.getElementById('edit_id').value) return;
                 const lat = e.latlng.lat;
                 const lng = e.latlng.lng;
-                document.getElementById('lat').value = lat;
-                document.getElementById('lng').value = lng;
+                document.getElementById('lat').value = lat.toFixed(6);
+                document.getElementById('lng').value = lng.toFixed(6);
 
                 if (tempMarker) map.removeLayer(tempMarker);
                 tempMarker = L.marker([lat, lng]).addTo(map).bindPopup('จุดที่เลือก').openPopup();
@@ -313,14 +333,27 @@
             });
         }
 
+        // ระบบบันทึกข้อมูล พร้อมกรองและป้องกันการโจมตี
         document.getElementById('locationForm').addEventListener('submit', async function(e) {
             e.preventDefault();
+            
+            // กรองและตรวจสอบพิกัดให้มั่นใจว่าเป็นตัวเลขที่ปลอดภัยก่อนส่งเข้าฐานข้อมูล
+            const rawLat = document.getElementById('lat').value;
+            const rawLng = document.getElementById('lng').value;
+            const cleanLat = sanitizeCoordinate(rawLat);
+            const cleanLng = sanitizeCoordinate(rawLng);
+
+            if (isNaN(cleanLat) || isNaN(cleanLng)) {
+                alert('กรุณากรอกค่าพิกัด ละติจูด และ ลองจิจูด ให้ถูกต้องเป็นตัวเลข');
+                return;
+            }
+
             const editId = document.getElementById('edit_id').value;
             const formData = {
                 location_type: document.getElementById('location_type').value,
                 name: document.getElementById('name').value.trim(),
-                lat: parseFloat(document.getElementById('lat').value),
-                lng: parseFloat(document.getElementById('lng').value),
+                lat: cleanLat,
+                lng: cleanLng,
                 description: document.getElementById('description').value.trim(),
                 license_status: document.getElementById('license_status').value,
                 license_expire_date: document.getElementById('license_expire_date').value || null,
@@ -364,6 +397,10 @@
             document.getElementById('form-title').innerText = 'บันทึกข้อมูลแหล่งกำเนิด / จุดรวม';
             document.getElementById('btnSave').innerText = 'บันทึกข้อมูล';
             document.getElementById('btnCancelEdit').style.display = 'none';
+            if (tempMarker) {
+                map.removeLayer(tempMarker);
+                tempMarker = null;
+            }
         }
 
         window.deleteLocation = async function(id) {
@@ -385,16 +422,6 @@
                     license_status: "ขอแล้ว",
                     license_expire_date: "2027-12-31",
                     disposal_method: "มีผู้มารับ"
-                },
-                {
-                    location_type: "จุดรวมของชุมชน",
-                    name: "ตัวอย่าง จุดทิ้งขยะอันตรายหมู่ 1",
-                    lat: 13.99200,
-                    lng: 101.73200,
-                    description: "ศาลาประชาคมหมู่บ้าน จุดรวบรวมถ่านไฟฉายและหลอดไฟ",
-                    license_status: "ไม่ระบุ/ไม่ใช่กิจการ",
-                    license_expire_date: "",
-                    disposal_method: "อบต.มารับ"
                 }
             ];
             const worksheet = XLSX.utils.json_to_sheet(templateData);
@@ -411,6 +438,7 @@
             XLSX.writeFile(workbook, "hazardous_waste_locations.xlsx");
         }
 
+        function backupData`() {} // ใช้สำรองข้อมูล JSON เดิม
         function backupData() {
             if (allLocations.length === 0) { alert('ไม่มีข้อมูลสำหรับสำรอง'); return; }
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(allLocations, null, 2));
@@ -438,14 +466,14 @@
                     if (rows.length === 0) { alert('ไม่พบข้อมูลในไฟล์ Excel'); return; }
 
                     const cleanRows = rows.map(r => ({
-                        location_type: r.location_type || r.ประเภทสถานที่ || 'สถานประกอบการ/กิจการ',
-                        name: (r.name || r.ชื่อกิจการ || '').toString().trim(),
-                        lat: parseFloat(r.lat || r.ละติจูด),
-                        lng: parseFloat(r.lng || r.ลองจิจูด),
-                        description: (r.description || r.รายละเอียดเพิ่มเติม || '').toString().trim(),
-                        license_status: r.license_status || r.สถานะการขออนุญาต || 'ขอแล้ว',
+                        location_type: escapeHTML(r.location_type || r.ประเภทสถานที่ || 'สถานประกอบการ/กิจการ'),
+                        name: escapeHTML((r.name || r.ชื่อกิจการ || '').toString().trim()),
+                        lat: sanitizeCoordinate(r.lat || r.ละติจูด),
+                        lng: sanitizeCoordinate(r.lng || r.ลองจิจูด),
+                        description: escapeHTML((r.description || r.รายละเอียดเพิ่มเติม || '').toString().trim()),
+                        license_status: escapeHTML(r.license_status || r.สถานะการขออนุญาต || 'ขอแล้ว'),
                         license_expire_date: r.license_expire_date || r.วันหมดอายุใบอนุญาต || null,
-                        disposal_method: r.disposal_method || r.วิธีการกำจัดขยะอันตราย || 'มีผู้มารับ'
+                        disposal_method: escapeHTML(r.disposal_method || r.วิธีการกำจัดขยะอันตราย || 'มีผู้มารับ')
                     }));
 
                     const { error } = await db.from('locations').insert(cleanRows);
